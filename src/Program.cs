@@ -28,7 +28,6 @@ namespace MedPark.Payment
                     webBuilder.UseContentRoot(Directory.GetCurrentDirectory())
                     .UseIISIntegration()
                     .UseStartup<Startup>();
-                });
-                //.UseLogging();
+                }).UseLogging();
     }
 }
