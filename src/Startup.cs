@@ -5,7 +5,9 @@ using System.Reflection;
 using System.Threading.Tasks;
 using Autofac;
 using Autofac.Extensions.DependencyInjection;
+using Consul;
 using MedPark.Common;
+using MedPark.Common.Consul;
 using MedPark.Common.RabbitMq;
 using MedPark.Payment.Domain;
 using MedPark.Payment.Messages.Commands;
@@ -36,6 +38,8 @@ namespace MedPark.Payment
         // This method gets called by the runtime. Use this method to add services to the container.
         public void ConfigureServices(IServiceCollection services)
         {
+            services.AddHealthChecks();
+            services.AddConsul();
             services.AddDbContext<PaymentDBContext>(options => options.UseSqlServer(Configuration["Database:ConnectionString"]));
             services.AddMvc(mvc => mvc.EnableEndpointRouting = false).SetCompatibilityVersion(CompatibilityVersion.Version_3_0);
         }
@@ -54,13 +58,11 @@ namespace MedPark.Payment
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
-        public void Configure(IApplicationBuilder app, IHostEnvironment env, IServiceProvider servProvider)
+        public void Configure(IApplicationBuilder app, IHostEnvironment env, IHostApplicationLifetime lifetime, IConsulClient consulClient)
         {
             if (env.IsDevelopment())
             {
                 app.UseDeveloperExceptionPage();
-
-                //SeedData.EnsureSeedData(servProvider);
             }
             else
             {
@@ -69,12 +71,23 @@ namespace MedPark.Payment
             }
 
             app.UseHttpsRedirection();
+            app.UseRouting();
+            app.UseEndpoints(endpoit =>
+            {
+                endpoit.MapHealthChecks("/health");
+            });
 
             app.UseRabbitMq()
                 .SubscribeCommand<AddPaymentMethod>()
                 .SubscribeEvent<CustomerCreated>(@namespace: "customers")
                 .SubscribeEvent<OrderPlaced>(@namespace: "order-service")
                 .SubscribeEvent<CustomerDetailsUpated>(@namespace: "customers");
+
+            var serviceID = app.UseConsul();
+            lifetime.ApplicationStopped.Register(() =>
+            {
+                consulClient.Agent.ServiceDeregister(serviceID);
+            });
 
             app.UseMvcWithDefaultRoute();
         }
